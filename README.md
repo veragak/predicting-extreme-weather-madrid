@@ -16,6 +16,8 @@ Developed for **FEM11149 – Introduction to Data Science**
 - report/
      - Assignment2_IDS.Rmd # Full analysis (source + narrative)
      - Assignment2_IDS.pdf # Final knitted report
+- RCode/
+       - analysis_script.R – clean, runnable analysis script
 - README.md
 
 
