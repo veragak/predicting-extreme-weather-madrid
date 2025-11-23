@@ -1,169 +1,121 @@
-Predicting Extreme Weather in Madrid
-Principal Component Analysis & Regression Forecasting (IDS Assignment 2)
+# Predicting Extreme Weather in Madrid  
+### Principal Component Analysis & Regression Forecasting
 
-This project models tomorrow’s maximum temperature in Madrid using historical meteorological data from the Copernicus CERRA dataset.
-It combines exploratory analysis, PCA, Principal Component Regression (PCR), linear regression, bootstrap inference, and decile-level performance evaluation to understand and forecast temperature extremes.
+This project builds a next-day temperature forecasting model for **Madrid**, using meteorological data from the **Copernicus CERRA** dataset.  
+It combines exploratory analysis, PCA, Principal Component Regression (PCR), linear regression, bootstrap inference, and a decile-based error study to assess how well models predict extreme temperatures.
 
-This project was developed as part of the course FEM11149 – Introduction to Data Science (ESE, Erasmus University Rotterdam).
+Developed for **FEM11149 – Introduction to Data Science**  
+*Erasmus School of Economics, Erasmus University Rotterdam*
 
-Repository Structure
-.
+---
+
+## Repository Structure
+
 ├── data/
-│   └── a2_data_group_22.csv            # Dataset (raw)
+│ └── a2_data_group_22.csv # Raw dataset
 │
 ├── report/
-│   ├── Assignment2_IDS.Rmd            # Full analysis (source code + narrative)
-│   └── Assignment2_IDS.pdf            # Knitted report (final output)
+│ ├── Assignment2_IDS.Rmd # Full analysis (source + narrative)
+│ └── Assignment2_IDS.pdf # Final knitted report
 │
-└── README.md                          # Project documentation
+└── README.md
 
-🔍 Project Overview
 
-The goal of this project is to forecast next-day maximum temperature using today’s weather conditions, exploring:
+---
 
-Which meteorological variables are most predictive
+## Overview
 
-Whether PCA improves forecasting performance
+The goal is to forecast **tomorrow’s maximum temperature** from **today’s meteorological conditions**.  
+The analysis explores:
 
-How PCR compares to a standard linear regression
+- Which variables are most predictive  
+- Whether PCA improves model stability  
+- PCR versus standard linear regression  
+- Performance across cold, mid, and hot temperature deciles  
+- How well models predict temperature extremes  
 
-How prediction accuracy changes across cold vs hot temperature deciles
+---
 
-Whether extreme weather events are harder to predict
+## Methods
 
-The full analysis is available in the RMarkdown report.
+### **Data Preparation**
+- Renamed and standardized variables  
+- Created a supervised learning structure:  
+  **X = today’s weather**, **y = tomorrow’s maximum temperature**
 
-🧪 Methods & Techniques
-1. Data Setup
+### **Correlation Analysis**
+- Strong relationship between today’s and tomorrow’s max temperature  
+- High multicollinearity → motivates PCA  
 
-Cleaned and renamed variables for clarity
+### **Principal Component Analysis (PCA)**
+- Chose number of PCs via:
+  - cumulative variance  
+  - Kaiser (> 1)  
+  - scree plot  
+- Interpreted PC1–PC2 with a biplot  
+- Bootstrap CI for PC1 variance ratio  
 
-Constructed a supervised learning dataset where
-X = today’s weather,
-y = tomorrow’s maximum temperature
+### **Predictive Models**
+- Principal Component Regression (PCR)  
+- Multiple Linear Regression (baseline)  
+- Sensitivity analysis: 3, 4, and 5 components  
+- Evaluation with RMSE, MAE, R²  
 
-2. Correlation Analysis
+### **Decile MSE Analysis**
+- Split test data into 10 temperature deciles  
+- Compared performance for:  
+  - ❄️ coldest days  
+  - 🌤️ mid-range days  
+  - 🔥 hottest days  
 
-Temperature variables show the strongest predictive power
+---
 
-Strong multicollinearity across meteorological variables → justification for PCA
+## Key Findings
 
-3. Principal Component Analysis (PCA)
+- Today’s maximum temperature is an **excellent predictor** (r ≈ 0.96).  
+- First **4 PCs explain ~87%** of variance.  
+- **Linear regression outperformed all PCR models**, with lower RMSE, lower MAE, and higher R².  
+- PCR performance is sensitive to component choice.  
+- All models struggle more with **extreme** temperatures.  
+- PCR(3) performs best on the coldest days.  
+- **Linear regression performs best on the hottest days**, which matter most for extreme-weather prediction.
 
-Calculated principal components on training data
+---
 
-Chose optimal number of components using:
+## Reproducing the Analysis
 
-Cumulative variance explained
+### **Install packages**
 
-Kaiser criterion (eigenvalues > 1)
-
-Scree plot
-
-Interpreted PC1 and PC2 using a biplot
-
-Bootstrap confidence intervals for PC1 variance ratio
-
-4. Predictive Models
-
-Principal Component Regression (PCR)
-
-Multiple Linear Regression (baseline)
-
-Sensitivity analysis: 3, 4, and 5 components
-
-Evaluation metrics:
-
-RMSE
-
-MAE
-
-R²
-
-5. Decile MSE Analysis
-
-Divided test observations into 10 temperature deciles
-
-Compared model performance on:
-
-coldest days
-
-mid-range days
-
-hottest days
-
-📊 Key Findings
-
-Today’s maximum temperature is the strongest predictor of tomorrow’s (r ≈ 0.96).
-
-The first 4 principal components explain ~87% of variance.
-
-Linear Regression outperformed all PCR models, with:
-
-lower RMSE & MAE
-
-higher R²
-
-PCR’s performance is sensitive to the number of components chosen.
-
-All models struggle with rare extreme temperatures (very hot or very cold).
-
-The decile MSE plot shows:
-
-PCR(3) performs best on the coldest days
-
-Linear Regression performs best on the hottest days (most relevant for extreme weather forecasting)
-
-▶️ How to Reproduce the Analysis
-Requirements
-
-Install required packages:
-
+```r
 install.packages(c(
-  "pacman", "dplyr", "tibble", "knitr", "readr", 
+  "pacman", "dplyr", "tibble", "knitr", "readr",
   "tidyr", "ggplot2", "boot", "pls"
 ))
+```
+---
 
+## Skills Demonstrated
 
-Or load using pacman:
+Data cleaning
 
-pacman::p_load(dplyr, tibble, knitr, readr, tidyr,
-               ggplot2, boot, pls)
+Exploratory analysis
 
-Steps
-
-Clone this repository
-
-Open Assignment2_IDS.Rmd in RStudio
-
-Make sure the dataset is located at:
-
-data/a2_data_group_22.csv
-
-
-Click Knit to generate the full report
-
-🧠 Skills Demonstrated
-
-Data cleaning & preprocessing
-
-Exploratory analysis & visualization
-
-PCA, eigenvalues, loadings, biplots
+PCA, loadings, eigenvalues
 
 Bootstrap inference
 
-Regression modeling (PCR & LM)
+PCR & linear regression modeling
 
-Handling time-ordered data
+Chronological train/test splitting
 
-Model selection & sensitivity analysis
+Sensitivity analysis
 
-Decile-based model diagnostics
+Decile-based diagnostics
 
-Reproducible reporting in RMarkdown
+Reproducible RMarkdown reporting
 
-👩‍💻 Authors
+---
+## Authors
 
 Daphne
 
@@ -173,4 +125,4 @@ Vera
 
 Zsófi
 
-(Erasmus School of Economics, Data Science & Marketing Analytics MSc)
+**MSc Data Science & Marketing Analytics, Erasmus School of Economics**
