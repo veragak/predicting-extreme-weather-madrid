@@ -11,14 +11,12 @@ Developed for **FEM11149 – Introduction to Data Science**
 
 ## Repository Structure
 
-├── data/
-│ └── a2_data_group_22.csv # Raw dataset
-│
-├── report/
-│ ├── Assignment2_IDS.Rmd # Full analysis (source + narrative)
-│ └── Assignment2_IDS.pdf # Final knitted report
-│
-└── README.md
+- data/
+     a2_data_group_22.csv # Raw dataset
+- report/
+      Assignment2_IDS.Rmd # Full analysis (source + narrative)
+      Assignment2_IDS.pdf # Final knitted report
+- README.md
 
 
 ---
