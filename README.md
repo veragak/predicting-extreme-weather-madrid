@@ -94,33 +94,22 @@ install.packages(c(
 
 ## Skills Demonstrated
 
-Data cleaning
-
-Exploratory analysis
-
-PCA, loadings, eigenvalues
-
-Bootstrap inference
-
-PCR & linear regression modeling
-
-Chronological train/test splitting
-
-Sensitivity analysis
-
-Decile-based diagnostics
-
-Reproducible RMarkdown reporting
+- Data cleaning
+- Exploratory analysis
+- PCA, loadings, eigenvalues
+- Bootstrap inference
+- PCR & linear regression modeling
+- Chronological train/test splitting
+- Sensitivity analysis
+- Decile-based diagnostics
+- Reproducible RMarkdown reporting
 
 ---
 ## Authors
 
-Daphne
-
-Riya
-
-Vera
-
-Zsófi
+- Daphne
+- Riya
+- Vera
+- Zsófi
 
 **MSc Data Science & Marketing Analytics, Erasmus School of Economics**
