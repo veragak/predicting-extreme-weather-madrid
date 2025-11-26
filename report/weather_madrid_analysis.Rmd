@@ -24,7 +24,7 @@ always_allow_html: true
 getwd()
 #libraries
 pacman::p_load(dplyr, tibble, knitr, readr, tidyr, ggplot2, boot, pls)
-df <- read.csv("a2_data_group_22.csv")
+df <- read.csv("data_weather.csv")
 
 # Clean column names
 names(df) <- make.names(names(df))
