@@ -12,10 +12,10 @@ Developed for **FEM11149 – Introduction to Data Science**
 ## Repository Structure
 
 - data/
-     - a2_data_group_22.csv # Raw dataset
+     - data_weather # Raw dataset
 - report/
-     - Assignment2_IDS.Rmd # Full analysis (source + narrative)
-     - Assignment2_IDS.pdf # Final knitted report
+     - weather_madrid_analysis.Rmd # Full analysis (source + narrative)
+     - weather_madrid_analysis.pdf # Final knitted report
 - RCode/
        - analysis_script.R – clean, runnable analysis script
 - README.md
