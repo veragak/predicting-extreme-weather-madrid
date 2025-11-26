@@ -16,7 +16,7 @@ pacman::p_load(
 # --- 1. Data loading & preparation ----------------------------------------
 
 # Read data
-df <- read.csv("data/a2_data_group_22.csv")
+df <- read.csv("data/data_weather.csv")
 
 # Clean column names
 names(df) <- make.names(names(df))
