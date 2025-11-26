@@ -1,0 +1,761 @@
+---
+title: "Predicting Extreme Weather in Madrid"
+author: |
+  | Daphne, Riya, Vera, Zsofi
+date: "20 October, 2025"
+output:
+  pdf_document: null
+  word_document: default
+header-includes:
+- \usepackage{booktabs}
+- \usepackage{makecell}
+subtitle: "FEM11149 - Introduction to Data Science"
+editor_options:
+  chunk_output_type: inline
+  markdown: 
+    wrap: 72
+urlcolor: blue
+linkcolor: red
+always_allow_html: true
+---
+
+```{r, include = FALSE, warning=FALSE, error=FALSE}
+
+getwd()
+#libraries
+pacman::p_load(dplyr, tibble, knitr, readr, tidyr, ggplot2, boot, pls)
+df <- read.csv("a2_data_group_22.csv")
+
+# Clean column names
+names(df) <- make.names(names(df))
+
+#Renaming
+df<- df %>% rename("mean_temp" ="Mean.temperature...C.",
+                   "max_temp"= "Max..temperature...C.",
+                   "min_temp"= "Min..temperature...C.",
+                   "perceived_mean_temp"="Perceived.mean.temperature...C.",
+                   "perceived_max_temp"="Perceived.max..temperature...C.",
+                   "perceived_min_temp"="Perceived.min..temperature...C.",
+                   "max_wind_speed"= "Max..wind.speed..km.h.",
+                   "max_wind_gusts"= "Max..wind.gusts..km.h.",
+                   "radiation" = "Shortwave.radiation.sum..MJ.m2.",
+                   "wind_direction"="Dominant.wind.direction....",
+                   "evapotranspiration"="Reference.evapotranspiration..mm.",
+                   "daylight_duration"="Daylight.duration..s.",
+                   "sunshine_duration" = "Sunshine.duration..s.",
+                   "precipitation"="Precipitation.sum..mm.",
+                   "snowfall"="Snowfall.sum..mm.",
+                   "precipitation_hours"="Precipitation.hours..h.",
+                   "rain"= "Rain.sum..mm.")
+
+X <-df[1:(nrow(df)-1),] #there is no tomorrow for last observation
+y <- df$max_temp[2:nrow(df)]#day 1 has no “yesterday” can't predict something before
+
+numeric_X <- X[sapply(X, is.numeric) & names(X) != "Location.ID"] #only numeric cols
+
+correlations <- sapply(numeric_X, function(col) cor(col, y))#cor 
+
+par(mfrow = c(3, 6)) #grid of plot size
+
+for (colname in names(numeric_X)) { #Correlation visual
+ plot(numeric_X[[colname]], y,
+      xlab = colname, ylab = "Tomorrow's Max Temp",
+      cex.lab= 0.4, main = paste("Correlation: ", colname),
+      cex.main = 0.5, pch = 19, col = rgb(0, 0, 1, 0.5))} 
+
+n <- length(y)  #no of obs so it matches
+train_size <- floor(0.8 * n)# 80% data for training
+
+# Training set
+X_train <- numeric_X[1:train_size, ]; y_train <- y[1:train_size]
+# Testing set
+X_test <- numeric_X[(train_size + 1):n, ]; y_test <- y[(train_size + 1):n]
+
+#PCA on training data (only independent variables)
+res <- princomp(X_train, cor = T, scores = TRUE) #computing PCs
+round(res$loadings,2) #printing matrix of loading
+summary(res)
+
+### METHOD  1 
+var_explained <- res$sdev^2 / sum(res$sdev^2)
+# Compute cumulative variance
+cum_var <- cumsum(var_explained)
+
+# Create a data frame for plotting
+pca_var <- data.frame(PC = 1:length(var_explained),
+  Variance_Explained = var_explained, Cumulative_Variance = cum_var)
+
+# Plot cumulative variance explained
+plot(pca_var$PC, pca_var$Cumulative_Variance,
+  type = "b", pch = 19, col = "blue", xlab = "Principal Component",
+  ylab = "Cumulative Proportion of Variance Explained",
+  main = "Cumulative Variance Explained by Principal Components")
+abline(h = 0.8, col = "red", lty = 2)  # Add a reference line at 80%
+
+#### METHOD  2 
+#Scree plot of VAF with Kaiser threshold line 
+plot(res$sdev^2, type = "b", col = "blue", ylab = "Variance", xlab = "Principal Component")
+abline(h = 1, col = "red", lty = 2)  #Kaiser threshold line
+
+#question 7 - biplot
+rownames(res$scores) <- rep(".", res$n.obs)
+biplot(res, pc.biplot = TRUE, scale = 1, las = 1,
+       col = c(rgb(0, 0, 0.5, 0.25), rgb(0.5, 0, 0)),
+       cex = c(0.7, 0.9),
+       main = "Biplot (PC1–PC2)")
+
+#variance explained by PC1 (was showned before)
+ev <- res$sdev^2; prop_pc1_hat <- ev[1] / sum(ev)
+
+#bootstrap with 95% CI for PC1
+X_use <- as.data.frame(X_train)
+X_use <- X_use[, colSums(!is.na(X_use)) == nrow(X_use), drop = FALSE]
+const_cols <- sapply(X_use, function(z) sd(z) == 0)
+if (any(const_cols)) X_use <- X_use[, !const_cols, drop = FALSE]
+X_mat <- as.matrix(X_use)
+
+boot_pc1_prop <- function(data, idx){
+  x <- data[idx, , drop = FALSE]
+  ev_b <- try(princomp(x, cor = TRUE)$sdev^2, silent = TRUE)
+  if (inherits(ev_b, "try-error")) return(NA_real_)
+  ev_b[1] / sum(ev_b)
+}
+
+set.seed(123)
+B <- 2000 #could be higher/lower
+fit.boot <- boot(data = X_mat, statistic = boot_pc1_prop, R = B)
+
+prop_vec <- fit.boot$t[,1]
+prop_vec <- prop_vec[is.finite(prop_vec)]
+ci_pc1 <- quantile(prop_vec, probs = c(0.025, 0.975))
+
+#histogram
+op <- par(mar = c(5,4,4,1) + 0.1)
+hist(prop_vec, breaks = 30, col = "royalblue", border = "white",
+     main = "Bootstrap CI — PC1 ratio", xlab = "PropVar(PC1)", las = 1)
+abline(v = ci_pc1, col = "green3", lwd = 2)
+abline(v = prop_pc1_hat, col = "red", lwd = 2); par(op)
+
+#which variables explain
+load_pc1 <- res$loadings[, 1]           
+fit_pc1  <- as.numeric(load_pc1)^2      
+
+best_table <- data.frame(Variable    = names(load_pc1),
+  Loading_PC1 = as.numeric(load_pc1),Fit_by_PC1  = fit_pc1
+)
+best_table <- best_table[order(-best_table$Fit_by_PC1), ]
+head(best_table, 10)
+
+train_df <- data.frame(y = as.numeric(y_train), X_train)
+test_df <- data.frame(y = as.numeric(y_test), X_test)
+
+#PCR with CV
+set.seed(42)
+pcr_cv <- pcr(
+  y ~ ., data = train_df,
+  scale = TRUE,
+  validation = "CV",
+  segments = 5,                  #this is not in the book code
+  segment.type = "consecutive"   #this is not in the book code
+  )
+
+summary(pcr_cv)
+validationplot(pcr_cv, val.type = "MSEP")
+
+#RMSE
+rm_obj <- RMSEP(pcr_cv, estimate = "CV")  
+rm_obj
+cv_rmse <- drop(rm_obj$val[1, 1, -1])  
+cv_rmse
+cv_se   <- drop(rm_obj$se [1, 1, -1])         
+cv_se #result is NULL - can't do it with time data (i think?)
+
+k_min  <- which.min(cv_rmse)                   # min RMSEP (P=prediction)
+k_min                                          #result: k=16 - seems way too big (k=4 was the ideal in 
+
+#PCR prediction on test data
+pcr_pred_test <- as.numeric(predict(pcr_cv, newdata = test_df, ncomp = k_min))
+
+
+#how accurate the prediction?
+rmse <- sqrt(mean((y_test - pcr_pred_test)^2))
+mae  <- mean(abs(y_test - pcr_pred_test))
+r2   <- 1 - sum((y_test - pcr_pred_test)^2) / sum((y_test - mean(y_test))^2)
+
+c(RMSE = rmse, MAE = mae, R2 = r2)
+
+
+plot(cv_rmse, type = "b", col = "blue")
+abline(v = which.min(cv_rmse), col = "red", lwd = 2)
+
+
+#question 10 & 11: benchmark a linear regression model
+
+# Fit model on training data
+lm_model <- lm(y ~ ., data = train_df)
+
+# Summary of the model
+summary(lm_model)
+
+# Predictions
+lm_pred_test <- predict(lm_model, newdata = test_df)
+pcr_pred_test <- as.numeric(predict(pcr_cv, newdata = test_df, ncomp = k_min))
+
+# Metrics for lm
+lm_rmse <- sqrt(mean((y_test - lm_pred_test)^2))
+lm_mae  <- mean(abs(y_test - lm_pred_test))
+lm_r2   <- 1 - sum((y_test - lm_pred_test)^2) / sum((y_test - mean(y_test))^2)
+
+# Metrics for pca
+pcr_rmse <- sqrt(mean((y_test - pcr_pred_test)^2))
+pcr_mae  <- mean(abs(y_test - pcr_pred_test))
+pcr_r2   <- 1 - sum((y_test - pcr_pred_test)^2) / sum((y_test - mean(y_test))^2)
+
+#table to compare
+model_comparison <- data.frame(
+  Model = c("PCR", "Linear Regression"),
+  RMSE = c(pcr_rmse, lm_rmse),
+  MAE  = c(pcr_mae, lm_mae),
+  R2   = c(pcr_r2, lm_r2)
+)
+
+print(model_comparison)
+
+
+# --- Q12: Sensitivity analysis with ~4 components ---
+
+# Set chosen number of components based on PCA explained variance
+k_min <- 4
+
+# Fit PCR with 3 components
+pcr_3 <- pcr(y ~ ., data = train_df, scale = TRUE, ncomp = 3)
+pcr_pred_3 <- as.numeric(predict(pcr_3, newdata = test_df))
+
+# Fit PCR with 4 components (baseline)
+pcr_4 <- pcr(y ~ ., data = train_df, scale = TRUE, ncomp = 4)
+pcr_pred_4 <- as.numeric(predict(pcr_4, newdata = test_df))
+
+# Fit PCR with 5 components
+pcr_5 <- pcr(y ~ ., data = train_df, scale = TRUE, ncomp = 5)
+pcr_pred_5 <- as.numeric(predict(pcr_5, newdata = test_df))
+
+# --- Compute metrics for each model ---
+
+# 3 components
+rmse_3 <- sqrt(mean((y_test - pcr_pred_3)^2))
+mae_3  <- mean(abs(y_test - pcr_pred_3))
+r2_3   <- 1 - sum((y_test - pcr_pred_3)^2) / sum((y_test - mean(y_test))^2)
+
+# 4 components
+rmse_4 <- sqrt(mean((y_test - pcr_pred_4)^2))
+mae_4  <- mean(abs(y_test - pcr_pred_4))
+r2_4   <- 1 - sum((y_test - pcr_pred_4)^2) / sum((y_test - mean(y_test))^2)
+
+# 5 components
+rmse_5 <- sqrt(mean((y_test - pcr_pred_5)^2))
+mae_5  <- mean(abs(y_test - pcr_pred_5))
+r2_5   <- 1 - sum((y_test - pcr_pred_5)^2) / sum((y_test - mean(y_test))^2)
+
+# Combine into a comparison table
+pcr_sensitivity <- data.frame(
+  Model = c("PCR (3 comps)", "PCR (4 comps)", "PCR (5 comps)"),
+  RMSE = c(rmse_3, rmse_4, rmse_5),
+  MAE  = c(mae_3, mae_4, mae_5),
+  R2   = c(r2_3, r2_4, r2_5)
+)
+
+print(pcr_sensitivity)
+
+
+# question 13
+
+# --- 1. Recompute predictions (ensure correct length) ---
+pcr_pred_3 <- as.numeric(predict(pcr_3, newdata = test_df, ncomp = 3))
+pcr_pred_4 <- as.numeric(predict(pcr_4, newdata = test_df, ncomp = 4))
+pcr_pred_5 <- as.numeric(predict(pcr_5, newdata = test_df, ncomp = 5))
+lm_pred_test <- as.numeric(predict(lm_model, newdata = test_df))
+
+# --- 2. Create a test dataframe with actuals and predictions ---
+test_df_mse <- data.frame(
+  max_temp = y_test,
+  pred_pcr3 = pcr_pred_3,
+  pred_pcr4 = pcr_pred_4,
+  pred_pcr5 = pcr_pred_5,
+  pred_lm   = lm_pred_test
+)
+
+# --- 3. Add jitter to avoid ties in decile calculation ---
+set.seed(123)  # for reproducibility
+test_df_mse <- test_df_mse %>%
+  mutate(max_temp_jittered = max_temp + rnorm(nrow(test_df_mse), mean = 0, sd = 0.01))
+
+# --- 4. Compute decile breaks and assign deciles ---
+decile_breaks <- quantile(test_df_mse$max_temp_jittered, probs = seq(0, 1, 0.1), na.rm = TRUE)
+
+test_df_mse <- test_df_mse %>%
+  mutate(decile = cut(max_temp_jittered, breaks = decile_breaks, labels = 1:10, include.lowest = TRUE))
+
+# --- 5. Compute MSE per decile per model ---
+mse_df <- test_df_mse %>%
+  group_by(decile) %>%
+  summarise(
+    mse_pcr3 = mean((max_temp - pred_pcr3)^2, na.rm = TRUE),
+    mse_pcr4 = mean((max_temp - pred_pcr4)^2, na.rm = TRUE),
+    mse_pcr5 = mean((max_temp - pred_pcr5)^2, na.rm = TRUE),
+    mse_lm   = mean((max_temp - pred_lm)^2, na.rm = TRUE)
+  ) %>%
+  ungroup() %>%
+  pivot_longer(cols = starts_with("mse_"), names_to = "model", values_to = "mse")
+
+# --- 6. Optional: Clean up model names for readability ---
+mse_df$model <- recode(mse_df$model,
+                       "mse_pcr3" = "PCR (3 comps)",
+                       "mse_pcr4" = "PCR (4 comps)",
+                       "mse_pcr5" = "PCR (5 comps)",
+                       "mse_lm"   = "Linear Regression")
+
+# --- 7. Plot MSE across deciles ---
+ggplot(mse_df, aes(x = as.numeric(decile), y = mse, color = model)) +
+  geom_line(size = 1) +
+  geom_point(size = 2) +
+  labs(
+    title = "MSE Across Deciles for PCR (3, 4, 5 comps) and Linear Regression",
+    x = "Decile (1 = Coldest Days, 10 = Hottest Days)",
+    y = "Mean Squared Error (MSE)",
+    color = "Model"
+  ) +
+  scale_x_continuous(breaks = 1:10) +
+  theme_minimal()
+
+
+
+# --- Q12: Sensitivity analysis with 3, 4, and 5 components ---
+
+# Train models
+pcr_3 <- pcr(y ~ ., data = train_df, scale = TRUE, ncomp = 3)
+pcr_4 <- pcr(y ~ ., data = train_df, scale = TRUE, ncomp = 4)
+pcr_5 <- pcr(y ~ ., data = train_df, scale = TRUE, ncomp = 5)
+
+# Predictions on test set
+pcr_pred_3 <- as.numeric(predict(pcr_3, newdata = test_df, ncomp = 3))
+pcr_pred_4 <- as.numeric(predict(pcr_4, newdata = test_df, ncomp = 4))
+pcr_pred_5 <- as.numeric(predict(pcr_5, newdata = test_df, ncomp = 5))
+
+# Compute metrics for 3 components
+rmse_3 <- sqrt(mean((y_test - pcr_pred_3)^2))
+mae_3  <- mean(abs(y_test - pcr_pred_3))
+r2_3   <- 1 - sum((y_test - pcr_pred_3)^2) / sum((y_test - mean(y_test))^2)
+
+# Compute metrics for 4 components
+rmse_4 <- sqrt(mean((y_test - pcr_pred_4)^2))
+mae_4  <- mean(abs(y_test - pcr_pred_4))
+r2_4   <- 1 - sum((y_test - pcr_pred_4)^2) / sum((y_test - mean(y_test))^2)
+
+# Compute metrics for 5 components
+rmse_5 <- sqrt(mean((y_test - pcr_pred_5)^2))
+mae_5  <- mean(abs(y_test - pcr_pred_5))
+r2_5   <- 1 - sum((y_test - pcr_pred_5)^2) / sum((y_test - mean(y_test))^2)
+
+# Combine into a comparison table
+pcr_sensitivity <- data.frame(
+  Model = c("PCR (3 comps)", "PCR (4 comps)", "PCR (5 comps)"),
+  RMSE = c(rmse_3, rmse_4, rmse_5),
+  MAE  = c(mae_3, mae_4, mae_5),
+  R2   = c(r2_3, r2_4, r2_5)
+)
+
+print(pcr_sensitivity)
+
+# --------------------------------------------------------------------------
+# Q13: Model Comparison MSE and Decile graph for PCR (3,4,5 comps) and Linear Regression
+# --------------------------------------------------------------------------
+
+# Linear regression predictions (if not done already)
+lm_pred_test <- as.numeric(predict(lm_model, newdata = test_df))
+
+# Create a test data frame with actuals and predictions
+test_df_mse <- data.frame(
+  max_temp = y_test,
+  pred_pcr3 = pcr_pred_3,
+  pred_pcr4 = pcr_pred_4,
+  pred_pcr5 = pcr_pred_5,
+  pred_lm   = lm_pred_test
+)
+
+# Add jitter to break ties
+set.seed(123)
+test_df_mse <- test_df_mse %>%
+  mutate(max_temp_jittered = max_temp + rnorm(nrow(test_df_mse), mean = 0, sd = 0.01))
+
+# Compute decile breaks and assign deciles
+decile_breaks <- quantile(test_df_mse$max_temp_jittered, probs = seq(0, 1, 0.1), na.rm = TRUE)
+test_df_mse <- test_df_mse %>%
+  mutate(decile = cut(max_temp_jittered, breaks = decile_breaks, labels = 1:10, include.lowest = TRUE))
+
+# Compute MSE per decile
+mse_df <- test_df_mse %>%
+  group_by(decile) %>%
+  summarise(
+    mse_pcr3 = mean((max_temp - pred_pcr3)^2),
+    mse_pcr4 = mean((max_temp - pred_pcr4)^2),
+    mse_pcr5 = mean((max_temp - pred_pcr5)^2),
+    mse_lm   = mean((max_temp - pred_lm)^2)
+  ) %>%
+  ungroup() %>%
+  pivot_longer(cols = starts_with("mse_"), names_to = "model", values_to = "mse")
+
+# Clean model names
+mse_df$model <- recode(mse_df$model,
+                       "mse_pcr3" = "PCR (3 comps)",
+                       "mse_pcr4" = "PCR (4 comps)",
+                       "mse_pcr5" = "PCR (5 comps)",
+                       "mse_lm"   = "Linear Regression")
+
+# Plot MSE across deciles
+ggplot(mse_df, aes(x = as.numeric(decile), y = mse, color = model)) +
+  geom_line(linewidth = 1) +
+  geom_point(size = 2) +
+  labs(
+    title = "MSE Across Deciles for PCR (3, 4, 5 comps) and Linear Regression",
+    x = "Decile (1 = Coldest Days, 10 = Hottest Days)",
+    y = "Mean Squared Error (MSE)",
+    color = "Model"
+  ) +
+  scale_x_continuous(breaks = 1:10) +
+  theme_minimal()
+```
+
+# Introduction
+Understanding the factors that influence daily maximum temperature in Madrid is essential for anticipating extreme weather events. Meteorological variables can provide valuable insights for predicting such events one day ahead, which is crucial for energy companies to manage demand, for urban planners to prepare infrastructure, and for public authorities to ensure safety. This analysis focuses on identifying key predictors and evaluating their predictive performance to support effective short-term forecasting and informed decision-making.
+
+# Data
+The data were obtained from the Copernicus European Regional ReAnalysis (CERRA) project, which provides spatially and temporally consistent historical reconstructions of meteorological conditions across Europe. The dataset covers over three decades and includes multiple atmospheric and surface-level variables with high temporal and spatial resolution. These include measurements of temperature, wind speed and direction, humidity, cloud cover, precipitation, radiation, soil moisture, and surface fluxes, among others.  
+The outcome of interest is the daily maximum temperature, which measures the highest air temperature at 2 meters above the surface within a 24-hour period. This indicator is central for anticipating extreme weather events and understanding variations in energy demand, infrastructure load, and public safety risks. In this report, the maximum temperature variable is analysed in its continuous form, allowing us to study how variations in meteorological variables are associated with differences in temperature extremes, as continuous values capture gradual changes and enable precise estimation of their effects.  
+
+# Methodology
+To predict over time, we organised the data so that each row used the weather from one day to predict the next day’s temperature. Hence, the predictor variables (X) include all weather measurements from the current day, and the final observation was removed since there was no next day to predict. The target variable (y) is the maximum temperature on the following day. This formulation reflects the natural structure of forecasting problems and prevents the use of future information in model training. Before analysis, the dataset was cleaned and standardised to ensure comparability across features measured in different units.
+
+
+A correlation analysis was conducted on the numeric variables to identify which features were most strongly associated with tomorrow’s maximum temperature. This step is essential  to investigate strong correlations among variables as that would indicate the presence of multicollinearity—one of the key motivations for applying Principal Component Analysis (PCA). To evaluate predictive performance on unseen data, the dataset was divided into a training set consisting first 80% of the observations and a testing set final 20%. The data was split in a chronological order rather than random sampling since this data is time-ordered, which prevents future data from influencing model estimation, essential for realistic forecasting. 
+
+
+Principal Component Analysis was employed to reduce the dimensionality of the predictor space and to identify latent patterns underlying the meteorological variables. Criteria used to determine the optimal number of components: Cumulative Variance Explained to represent the total variance explained by principal components, by summing the variance of each component; Kaiser threshold of eigenvalues greater than 1 and Scree plot displaying eigenvalues (measure of the variance explained by each component) from largest to smallest on the y-axis against the component number on the x-axis.Principal component regression was used to predict tomorrow’s maximum temperature. In this two-stage modelling process, PCA first transforms the correlated predictors into orthogonal principal components, and then a linear regression model is fitted using these components as explanatory variables. We use the number of components determined by the criteria for optimal number of components.
+
+
+To benchmark the PCR results, a multiple linear regression model was trained using all original predictors without dimensional reduction. This model served as a baseline to assess whether PCA improved performance beyond a standard linear approach. Prediction results from both models were obtained on the testing set, and their performance was compared using three metrics: Root Mean Squared Error (RMSE) to capture the average magnitude of prediction errors, Mean Absolute Error (MAE) to measure the average absolute deviation from observed values, and R-squared to quantify the proportion of variance explained by the model. These metrics were selected to provide an overview of predictive accuracy, model fit, and reliability, providing a fair comparison of the two approaches and an assessment of whether there is a relative benefit of dimensional reduction through PCR. To assess model robustness, a sensitivity analysis was performed using less than, more than and the chosen amount of components. Lastly, to explore model behaviour across different temperature variations, the test observations were divided into ten deciles based on actual maximum temperature values. Mean Squared Error (MSE) was calculated within each decile for PCR models with different amounts of components and for the linear regression model to compare best performing for extreme  weather conditions.
+
+# Results
+ The objective of the analysis is to predict tomorrow’s maximum temperature (dependent variable) based on the meteorological observations of today (independent variables). First, the correlation analysis is performed to gain insight into the structure of the meteorological data. Figure 1 shows a strong positive correlation between today’s and tomorrow's maximum temperature (r ‘is approximately’ 0.96). In contrast, Figure 2 shows the weak relationship between maximum wind gusts and tomorrow’s temperature (r ‘is approximately’ 0.03). Overall, variables related to temperature show the strongest correlations, while precipitation variables are moderately negatively correlated, and finally wind and snowfall contribute little explanatory power. The full set of correlation plots and the correlation table can be found in the appendix. Since there are strong and similar patterns across the temperature and radiation predictors, it suggests the presence of multicollinearity. This is a key justification for applying PCA, as it reduces correlated variables into a smaller set of independent components, and thus removing multicollinearity and simplifying the model without losing essential information.
+
+To perform PCA, the data was first split chronologically (80-20%) into training and testing data. Next the PCA was performed on the training set, and the number of principal components that will be used for analysis need to be determined based on three common criteria: cumulative variance explained, the Kaiser criterion (eigenvalues \> 1) and the scree plot ‘elbow’ method. In Figure 3 we can see that using three components would explain more than 80% of the variance of the original meteorological variables. Three components thus significantly reduce the dimensionality, suggesting three components for final analysis. In Figure 4 the scree plot shows an elbow after the third or fourth component and the eigenvalues drop below 1 after 4 components, indicating that beyond this point, each additional component explains less variance than a single original variable and thus contributes minimal new information to the model. In conclusion, four components are selected as they provide an optimal trade-off between explanatory power and model simplicity.
+
+```{r echo=FALSE, warning=FALSE, message=FALSE, results='hide',fig.width=6, fig.height=2.5, fig.align='center'}
+# --- METHOD 1: Cumulative variance explained
+pca_var <- data.frame(PC = 1:length(res$sdev^2 / sum(res$sdev^2)),
+                      Variance_Explained = (res$sdev^2 / sum(res$sdev^2)),Cumulative_Variance = cumsum(res$sdev^2))
+# Arrange 2 plots side by side
+par(mfrow = c(1, 2))
+par(mar = c(4, 4, 3, 2))  #adjust margins (bottom, left, top, right)
+plot(pca_var$PC, pca_var$Cumulative_Variance, type = "b", pch = 19, col = "blue",
+     xlab = "Principal Component", ylab = "Cumulative Proportion of Variance Explained",
+     main = "Figure 3: Cumulative Variance Explained by PC", 
+     cex.main = 0.5, cex.axis = 0.4, cex.lab = 0.4)
+abline(h = 0.8, col = "red", lty = 2)
+
+# --- METHOD 2: Scree plot
+plot(res$sdev^2, type = "b", col = "blue", ylab = "Variance", xlab = "Principal Component", 
+     main = "Figure 4: Scree Plot",
+     cex.main = 0.5, cex.axis = 0.4, cex.lab = 0.4)
+abline(h = 1, col = "red", lty = 2)
+```
+
+With the number of principal components established, we next examine their structure and interpretability. The biplot in Figure 5 shows how the original variables contribute to the first two components. PC1 is dominated by variables related to temperature and radiation, as their arrows point strongly to the right along the x-axis, indicating a warm and sunny dimension.
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE, results='hide', fig.width=6, fig.height=3.5, fig.align='center'}
+#question 7 - biplot
+rownames(res$scores) <- rep(".", res$n.obs)
+biplot(res, pc.biplot = TRUE, scale = 1, las = 1,
+       col = c(rgb(0, 0, 0.5, 0.25), rgb(0.5, 0, 0)),
+       cex = c(0.5, 0.7),
+       main = "Figure 5: Biplot (PC1–PC2)",
+       cex.main = 0.6, cex.axis = 0.4, cex.lab = 0.4)
+```
+
+Specifically, the loadings for PC1 (as shown in table 4 in the appendix) reveal that all temperature variables such as mean, maximum and minimum temperature (both actual and perceived), as well as radiation related variables, such as daylight duration, sunshine duration and radiation itself all contribute with loadings around 0.30. This suggests that
+these variables move together in an underlying pattern, with not one single variable driving the component. In the biplot we see that PC2 is more strongly related to precipitation and wind variables, with variables like precipitation and max wind gusts pointing upwards along the y-axis, indicating a wet and windy dimension. The dotted points represent individual days, showing their position based on PC1 and PC2. We can see the data varies gradually along the warm & sunny dimension and for the wet & windy dimension we see more variation towards the wetter and windier side. We further investigated the first principal component, as it alone explains 52% of the total variance. The narrow bootstrap confidence interval (0.517 to 0.529) for PC1 suggests this underlying pattern is robust and consistently shows across datasets that are resampled. These results and the bootstrap histogram can be found in the Appendix. A Principal Component Regression (PCR) was fitted on the training set using the chosen four components, as well as a Multiple Linear Regression (MLR) with the original predictors to serve as a benchmark (see appendix table 5). The results from both models can be found in table 1, where we can see that the MLR slightly outperforms the PCR with four components across all metrics. The MLR model has a lower RMSE (2.44 vs 2.81) and MAE (1.91 vs 2.5) as well as a higher $R^2$ (0.93 vs 0.91), which indicates it has more accurate and better fitting predictions. This result is somewhat unexpected, as we expected PCR to perform better by reducing multicollinearity, improving generalization by filtering out noise with dimensionality reduction and by controlling for overfitting as we use less predictors by using fewer components. The MLR performing better suggests that the high predictive power of the original variables outweighed the benefits of dimensionality reduction.  
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE, fig.align='center'}
+model_results <- data.frame(
+Model = c("PCR (3 comps)", "PCR (4 comps)", "PCR (5 comps)", "Linear Regression"), RMSE = c(rmse_3, rmse_4, rmse_5, lm_rmse),
+MAE = c(mae_3, mae_4, mae_5, lm_mae),
+R2 = c(r2_3, r2_4, r2_5, lm_r2)
+)
+# Print the table nicely
+knitr::kable(model_results, caption = "Model Performance: PCR vs. Linear Regression")
+```
+
+To assess the sensitivity of the PCR with 4 components, we also trained two additional models with one fewer and one more component. The results can also be found in table 1, and show that three PCR models perform similarly with the model with three components performing the best, as it has the lowest RMSE and MAE, and highest $R^2$. The model with five components performs slightly worse, likely due to the addition of a component that captures noise. This suggests a potential shortcoming in choosing four components instead of three based on the scree-plot and Kaiser criterion, as these criteria may not align perfectly with predictive performance. Nonetheless, we still see that the MLR outperforms all the PCR models. These results show that PCR performance is sensitive to the number of chosen components and that one should be careful when balancing explained variance and prediction accuracy. Finally, to critically assess the prediction results, the test data was divided into ten deciles based on the maximum temperature from the coldest to the hottest days. This was then plotted against the MSE of the different models, where a lower MSE suggests a better prediction. The results as shown in figure 6 show that all models perform best in the deciles in the middle, except for the 6th decile. However, the models all have more difficulty predicting rarer, extreme weather events. For cold temperatures, PCR with three components outperforms the other models. After this decile, the PCR models perform similarly, and the MLR performs the best. This is also the case in the last decile at the hottest temperatures, which is the most important for our research question. This reinforces that the linear regression model is superior in predictive accuracy, particularly where it matters most.
+
+# Conclusion and Discussion
+
+The analysis shows that today’s weather data are a strong predictor of tomorrow’s maximum temperature in Madrid, with a “warm‑and‑sunny” component (driven by temperature and radiation) dominating the signal.The first four principal components explain 86.8% of the variance, indicating that most of the original information can be compressed efficiently. Yet, because today’s maximum temperature alone accounts for the bulk of tomorrow’s value, PCA yields only modest gains in forecast accuracy while successfully addressing multicollinearity. The PCR model accuracy is highest for mid‑range temperatures but falls on extreme hot or cold days, reflecting the rarity and nonlinear nature of those events that linear models miss. The sixth decile also shows a slight error increase, likely due to greater meteorological variability intransitional temperature ranges, small deviations in this densely populated segment disproportionately raise overall error. Since linear regression already outperforms PCR, penalised methods such as ridge or elastic‑net should further enhance stability and predictive power by shrinking correlated coefficients without discarding information. Thus, PCA remains valuable for diagnostics, but penalised regression offers a better trade‑off between simplicity, robustness, and forecast accuracy.
+
+\newpage
+# Appendix
+```{r, echo=FALSE, warning=FALSE, message=FALSE, results='hide', fig.align='center'}
+# Set plotting area to 1 row, 2 columns
+par(mfrow = c(1, 2))
+par(mar = c(4, 4, 3, 2))  #adjust margins (bottom, left, top, right)
+# Figure 1: Today mean temp vs Tomorrow's Max Temp
+plot(numeric_X[["mean_temp"]], y,
+     xlab = "mean_temp",
+     ylab = "Tomorrow's Max Temp",
+     main = "Figure 1: Today mean temp vs Tomorrow's Max Temp",
+     cex.main = 0.5, cex.axis = 0.4, cex.lab = 0.4,
+     pch = 19,
+     col = rgb(0, 0, 1, 0.5))
+# Figure 2: Maximum Wind gusts vs Tomorrow's max temp)
+plot(numeric_X[["max_wind_gusts"]], y,
+     xlab = "max_wind_gusts",
+     ylab = "Tomorrow's Max Temp",
+     main = "Figure 2: Maximum Wind gusts vs Tomorrow's max temp",
+     cex.main = 0.5, cex.axis = 0.4, cex.lab = 0.4,
+     pch = 19,
+     col = rgb(0, 0, 1, 0.5))
+```
+
+```{r echo=FALSE, warning=FALSE, message=FALSE, results='hide' }
+#grid of plot size
+par(mfrow = c(3, 6))
+#Correlation visual
+for (colname in names(numeric_X)) {
+ plot(numeric_X[[colname]], y,
+      xlab = colname,
+      ylab = "Tomorrow's Max Temp",
+      cex.lab= 0.4,
+      main = paste("Correlation: ", colname),
+      cex.main = 0.5,
+      pch = 19,
+      col = rgb(0, 0, 1, 0.5),
+      title= "Correlations")
+}
+```
+
+
+
+
+```{r echo=FALSE, warning=FALSE, message=FALSE}
+hist(prop_vec, breaks = 30, col = "royalblue", border = "white",
+     main = "Figure 7: Bootstrap CI — PC1 ratio", xlab = "PropVar(PC1)", las = 1)
+abline(v = ci_pc1, col = "green3", lwd = 2)
+abline(v = prop_pc1_hat, col = "red", lwd = 2)
+par(op)
+```
+
+
+
+```{r echo=FALSE, warning=FALSE, message=FALSE, results='hide' ,fig.width=5, fig.height=4}
+ggplot(mse_df, aes(x = as.numeric(decile), y = mse, color = model)) +
+  geom_line(linewidth = 1) + geom_point(size = 2) +
+  labs(title = "Figure 6", subtitle = "MSE Across Deciles for PCR and LinearRegression",
+       x = "Decile (1 = Coldest Days, 10 = Hottest Days)",y = "Mean Squared Error (MSE)", 
+       color = "Model") + scale_x_continuous(breaks = 1:10) + theme_minimal()
+```
+
+
+```{r, echo=FALSE, warning=FALSE, message=FALSE}
+# Convert correlations vector to data frame
+cor_table <- data.frame(
+  Variable = names(correlations),
+  Correlation = as.numeric(correlations)) %>%
+  mutate(Interpretation = case_when(
+    Correlation > 0.9  ~ "Very strong positive",
+    Correlation > 0.7  ~ "Strong positive",
+    Correlation > 0.5  ~ "Moderate positive",
+    Correlation < -0.9 ~ "Very strong negative",
+    Correlation < -0.7 ~ "Strong negative",
+    Correlation < -0.5 ~ "Moderate negative",
+    TRUE               ~ "Negligible"))
+
+#table that illustrates the correlation
+knitr::kable(cor_table, caption = "Correlation Table for Numeric Varibales")
+```
+
+
+
+
+```{r echo=FALSE, warning=FALSE, message=FALSE}
+ev <- res$sdev^2
+prop_pc1_hat <- ev[1] / sum(ev)
+
+X_use <- as.data.frame(X_train)
+X_use <- X_use[, colSums(!is.na(X_use)) == nrow(X_use), drop = FALSE]
+const_cols <- sapply(X_use, function(z) sd(z) == 0)
+if (any(const_cols)) X_use <- X_use[, !const_cols, drop = FALSE]
+X_mat <- as.matrix(X_use)
+
+boot_pc1_prop <- function(data, idx) {x <- data[idx, , drop = FALSE]
+  ev_b <- try(princomp(x, cor = TRUE)$sdev^2, silent = TRUE)
+  if (inherits(ev_b, "try-error")) return(NA_real_)
+  ev_b[1] / sum(ev_b)}
+
+set.seed(123)
+B <- 2000
+fit.boot <- boot(data = X_mat, statistic = boot_pc1_prop, R = B)
+prop_vec <- fit.boot$t[, 1]
+prop_vec <- prop_vec[is.finite(prop_vec)]
+ci_pc1 <- quantile(prop_vec, probs = c(0.025, 0.975))
+
+op <- par(mar = c(5, 4, 4, 1) + 0.1)
+
+# --- VARIABLE IMPORTANCE FROM PC1 -----------------------------------------
+load_pc1 <- res$loadings[, 1]
+fit_pc1  <- as.numeric(load_pc1)^2
+best_table <- data.frame(Variable = names(load_pc1),Loading_PC1 = as.numeric(load_pc1),
+  Fit_by_PC1 = fit_pc1)
+best_table <- best_table[order(-best_table$Fit_by_PC1), ]
+knitr::kable(best_table, caption = "Variable Expained by PC1")
+```
+\newpage
+Linear Regression Coefficient Table 
+```{r echo=FALSE, warning=FALSE, message=FALSE}
+# Summary
+model_summary <- summary(lm_model)
+
+# Build a clean coefficient table
+coef_table <- data.frame(
+  Term = rownames(model_summary$coefficients),
+  Estimate = round(model_summary$coefficients[, 1], 4),
+  Std_Error = round(model_summary$coefficients[, 2], 4),
+  t_value = round(model_summary$coefficients[, 3], 3),
+  Pr_t = round(model_summary$coefficients[, 4], 4),
+  row.names = NULL
+)
+
+# Print a nice table that illustrates full linear regression model
+knitr::kable(coef_table, caption = "Linear Regression Coefficient Table")
+```
+
+
+
+\newpage
+Code
+```{r appendix, warning = FALSE, echo = TRUE, eval = FALSE}
+# --- DATA PREPARATION ------------------------------------------------------
+X <- df[1:(nrow(df)-1), ]                # No "tomorrow" for last observation
+y <- df$max_temp[2:nrow(df)]             # Day 1 has no "yesterday"
+
+numeric_X <- X[sapply(X, is.numeric) & names(X) != "Location.ID"]  # Keep only numeric columns
+# --- CORRELATION VISUALIZATION ---------------------------------------------
+correlations <- sapply(numeric_X, function(col) cor(col, y))
+par(mfrow = c(3, 6))
+for (colname in names(numeric_X)) {plot(numeric_X[[colname]], y, xlab = colname, 
+    ylab = "Tomorrow's Max Temp",cex.lab = 0.4, main = paste("Correlation:", colname),
+       cex.main = 0.5, pch = 19, col = rgb(0, 0, 1, 0.5))}
+# --- TRAIN-TEST SPLIT ------------------------------------------------------
+n <- length(y); train_size <- floor(0.8 * n)
+X_train <- numeric_X[1:train_size, ]
+y_train <- y[1:train_size]
+X_test  <- numeric_X[(train_size + 1):n, ]
+y_test  <- y[(train_size + 1):n]
+# --- PCA ON TRAINING DATA --------------------------------------------------
+res <- princomp(X_train, cor = TRUE, scores = TRUE)
+round(res$loadings, 2)
+# --- METHOD 1: Cumulative variance explained
+pca_var <- data.frame(PC = 1:length(res$sdev^2 / sum(res$sdev^2)),
+  Variance_Explained = (res$sdev^2 / sum(res$sdev^2)),Cumulative_Variance = cumsum(res$sdev^2))
+plot(pca_var$PC, pca_var$Cumulative_Variance, type = "b", pch = 19, col = "blue",
+     xlab = "Principal Component", ylab = "Cumulative Proportion of Variance Explained",
+     main = "Cumulative Variance Explained by Principal Components")
+abline(h = 0.8, col = "red", lty = 2)
+# --- METHOD 2: Scree plot
+plot(res$sdev^2, type = "b", col = "blue", ylab = "Variance", xlab = "Principal Component")
+abline(h = 1, col = "red", lty = 2)
+# --- Biplot
+rownames(res$scores) <- rep(".", res$n.obs)
+biplot(res, pc.biplot = TRUE, scale = 1, las = 1, col = c(rgb(0, 0, 0.5, 0.25), 
+       rgb(0.5, 0, 0)), cex = c(0.7, 0.9), main = "Biplot (PC1–PC2)")
+# --- VARIANCE EXPLAINED & BOOTSTRAP CI FOR PC1 ----------------------------
+ev <- res$sdev^2
+prop_pc1_hat <- ev[1] / sum(ev)
+
+X_use <- as.data.frame(X_train)
+X_use <- X_use[, colSums(!is.na(X_use)) == nrow(X_use), drop = FALSE]
+const_cols <- sapply(X_use, function(z) sd(z) == 0)
+if (any(const_cols)) X_use <- X_use[, !const_cols, drop = FALSE]
+X_mat <- as.matrix(X_use)
+
+boot_pc1_prop <- function(data, idx) {x <- data[idx, , drop = FALSE]
+  ev_b <- try(princomp(x, cor = TRUE)$sdev^2, silent = TRUE)
+  if (inherits(ev_b, "try-error")) return(NA_real_)
+  ev_b[1] / sum(ev_b)}
+
+set.seed(123)
+B <- 2000
+fit.boot <- boot(data = X_mat, statistic = boot_pc1_prop, R = B)
+prop_vec <- fit.boot$t[, 1]
+prop_vec <- prop_vec[is.finite(prop_vec)]
+ci_pc1 <- quantile(prop_vec, probs = c(0.025, 0.975))
+
+op <- par(mar = c(5, 4, 4, 1) + 0.1)
+hist(prop_vec, breaks = 30, col = "royalblue", border = "white",
+     main = "Bootstrap CI — PC1 ratio", xlab = "PropVar(PC1)", las = 1)
+abline(v = ci_pc1, col = "green3", lwd = 2)
+abline(v = prop_pc1_hat, col = "red", lwd = 2)
+par(op)
+# --- VARIABLE IMPORTANCE FROM PC1 -----------------------------------------
+load_pc1 <- res$loadings[, 1]
+fit_pc1  <- as.numeric(load_pc1)^2
+best_table <- data.frame(Variable = names(load_pc1),Loading_PC1 = as.numeric(load_pc1),
+  Fit_by_PC1 = fit_pc1)
+best_table <- best_table[order(-best_table$Fit_by_PC1), ]
+head(best_table, 10)
+# --- MODEL TRAINING --------------------------------------------------------
+train_df <- data.frame(y = as.numeric(y_train), X_train)
+test_df  <- data.frame(y = as.numeric(y_test),  X_test)
+
+lm_model <- lm(y ~ ., data = train_df)# Linear regression
+lm_pred_test <- predict(lm_model, newdata = test_df)
+
+pcr_3 <- pcr(y ~ ., data = train_df, scale = TRUE, ncomp = 3)# PCR with 3 components
+pcr_4 <- pcr(y ~ ., data = train_df, scale = TRUE, ncomp = 4)# PCR with 4 components
+pcr_5 <- pcr(y ~ ., data = train_df, scale = TRUE, ncomp = 5)# PCR with 5 components
+pcr_pred_3 <- as.numeric(predict(pcr_3, newdata = test_df, ncomp = 3))# pred with 3 components
+pcr_pred_4 <- as.numeric(predict(pcr_4, newdata = test_df, ncomp = 4))# pred with 4 components
+pcr_pred_5 <- as.numeric(predict(pcr_5, newdata = test_df, ncomp = 5))# pred with 5 components
+# --- MODEL PERFORMANCE -----------------------------------------------------
+rmse <- function(actual, pred) sqrt(mean((actual - pred)^2))
+mae  <- function(actual, pred) mean(abs(actual - pred))
+r2   <- function(actual, pred) 1 - sum((actual - pred)^2) / sum((actual - mean(actual))^2)
+
+(pcr_sensitivity <- data.frame(Model = c("PCR (3 comps)", "PCR (4 comps)", "PCR (5 comps)"),
+  RMSE = c(rmse(y_test, pcr_pred_3), rmse(y_test, pcr_pred_4), rmse(y_test, pcr_pred_5)),
+  MAE  = c(mae(y_test, pcr_pred_3),  mae(y_test, pcr_pred_4),  mae(y_test, pcr_pred_5)),
+  R2   = c(r2(y_test, pcr_pred_3),   r2(y_test, pcr_pred_4),   r2(y_test, pcr_pred_5))))
+
+lm_metrics <- data.frame(Model = "Linear Regression", RMSE = rmse(y_test, lm_pred_test),
+  MAE  = mae(y_test, lm_pred_test),R2   = r2(y_test, lm_pred_test))
+(model_comparison <- rbind(pcr_sensitivity, lm_metrics))
+# --- DECILE-LEVEL MSE PLOT -------------------------------------------------
+set.seed(123)
+test_df_mse <- data.frame(max_temp = y_test,pred_pcr3 = pcr_pred_3,
+  pred_pcr4 = pcr_pred_4,pred_pcr5 = pcr_pred_5,pred_lm = lm_pred_test) %>%
+  mutate(max_temp_jittered = max_temp + rnorm(nrow(.), mean = 0, sd = 0.01))
+
+decile_breaks <- quantile(test_df_mse$max_temp_jittered, probs=seq(0, 1, 0.1),na.rm=TRUE)
+test_df_mse <- test_df_mse %>%
+  mutate(decile = cut(max_temp_jittered, breaks = decile_breaks, labels = 1:10,include.lowest=TRUE))
+
+mse_df <- test_df_mse %>%group_by(decile) %>%summarise(mse_pcr3 = mean((max_temp - pred_pcr3)^2),
+  mse_pcr4 = mean((max_temp - pred_pcr4)^2),mse_pcr5 = mean((max_temp - pred_pcr5)^2),
+  mse_lm   = mean((max_temp - pred_lm)^2)) %>% ungroup() %>%pivot_longer(cols = starts_with("mse_"),
+  names_to = "model", values_to = "mse") %>% mutate(model = recode(model,"mse_pcr3" = "PCR (3 comps)",
+  "mse_pcr4" = "PCR (4 comps)", "mse_pcr5" = "PCR (5 comps)","mse_lm"   = "Linear Regression"))
+
+ggplot(mse_df, aes(x = as.numeric(decile), y = mse, color = model)) +
+  geom_line(linewidth = 1) + geom_point(size = 2) +
+  labs(title = "MSE Across Deciles for PCR (3, 4, 5 comps) and Linear Regression",
+       x = "Decile (1 = Coldest Days, 10 = Hottest Days)",y = "Mean Squared Error (MSE)", 
+       color = "Model") + scale_x_continuous(breaks = 1:10) + theme_minimal()
+```
+
