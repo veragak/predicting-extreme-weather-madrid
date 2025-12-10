@@ -12,7 +12,7 @@ Developed for **FEM11149 – Introduction to Data Science**
 ## Repository Structure
 
 - data/
-     - The dataset used in this project cannot be shared due to course policies.
+     - `data_weather.csv`
 - report/
      - weather_madrid_analysis.Rmd # Full analysis (source + narrative)
      - weather_madrid_analysis.pdf # Final knitted report
